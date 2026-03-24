@@ -44,7 +44,13 @@ pipeline {
             steps {
                 script {
                     // Build IMAGE_NAME here, after credentials are resolved
-                    env.IMAGE_NAME = env.DOCKER_USER + '/gitops-app'
+                    withCredentials([usernamePassword(
+                        credentialsId: 'docker-hub-credentials',
+                        usernameVariable: 'DOCKER_USERNAME',
+                        passwordVariable: 'DOCKER_PASSWORD'
+                    )]) {
+                        env.IMAGE_NAME = env.DOCKER_USERNAME + '/gitops-app'
+                    }
 
                     def shortSha = sh(
                         script: 'git rev-parse --short HEAD',
@@ -101,7 +107,7 @@ pipeline {
             steps {
                 script {
                     docker.build(env.IMAGE_NAME + ':' + env.IMAGE_TAG, '--pull .')
-                    echo "Docker image built: ${IMAGE_NAME}:${env.IMAGE_TAG}"
+                    echo 'Docker image built: ' + env.IMAGE_NAME + ':' + env.IMAGE_TAG
                 }
             }
         }
@@ -120,12 +126,12 @@ pipeline {
                         // Push the versioned tag (always)
                         docker.image(env.IMAGE_NAME + ':' + env.IMAGE_TAG).push()
 
-                        echo "Pushed: ${IMAGE_NAME}:${env.IMAGE_TAG}"
+                        echo 'Pushed: ' + env.IMAGE_NAME + ':' + env.IMAGE_TAG
 
                         // On main: also push 'latest' so docker pull gitops-app always gets current
                         if (env.BRANCH_NAME == 'main') {
                             docker.image(env.IMAGE_NAME + ':' + env.IMAGE_TAG).push('latest')
-                            echo "Pushed: ${IMAGE_NAME}:latest"
+                            echo 'Pushed: ' + env.IMAGE_NAME + ':latest'
                         }
                     }
                 }
@@ -154,8 +160,8 @@ pipeline {
                             # Replace the image tag line in deployment.yaml
                             # Before: image: your-user/gitops-app:develop-abc1234
                             # After:  image: your-user/gitops-app:v1.0.0
-                            echo '✓ Pipeline succeeded — ' + env.IMAGE_NAME + ':' + env.IMAGE_TAG + ' is live.' \\
-                                ${K8S_DEPLOYMENT}
+                            sed -i "s|image: ${env.IMAGE_NAME}:.*|image: ${env.IMAGE_NAME}:${env.IMAGE_TAG}|g" ${K8S_DEPLOYMENT}
+
 
                             # Verify the substitution worked — this will print in the build log
                             echo "Updated image tag in manifest:"
@@ -205,7 +211,7 @@ pipeline {
 
     post {
         success {
-            echo "✓ Pipeline succeeded — ${IMAGE_NAME}:${env.IMAGE_TAG} is live."
+            echo '✓ Pipeline succeeded — ' + env.IMAGE_NAME + ':' + env.IMAGE_TAG + ' is live.'
         }
 
         failure {
