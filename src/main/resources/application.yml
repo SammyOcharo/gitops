@@ -1,0 +1,60 @@
+spring:
+  application:
+    name: gitops
+
+  datasource:
+    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT}/${DB_NAME}
+    username: ${DB_USER}
+    password: ${DB_PASSWORD}
+    hikari:
+      maximum-pool-size: 10
+      minimum-idle: 2
+      connection-timeout: 30000
+
+  jpa:
+    hibernate:
+      ddl-auto: update          # use Flyway/Liquibase in prod; 'update' for local dev
+    show-sql: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        format_sql: true
+
+  # Flyway migrations (optional but recommended)
+  flyway:
+    enabled: false                # set to true when you add src/main/resources/db/migration/
+
+server:
+  port: ${PORT:8080}
+  servlet:
+    context-path: /
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      show-details: always        # needed for K8s liveness/readiness probes
+  health:
+    livenessState:
+      enabled: true
+    readinessState:
+      enabled: true
+
+logging:
+  level:
+    com.example.myapp: INFO
+    org.springframework.web: WARN
+
+---
+# ?? Local dev profile ????????????????????????????????????????????????????????
+spring:
+  config:
+    activate:
+      on-profile: local
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: true

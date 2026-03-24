@@ -1,0 +1,228 @@
+pipeline {
+    agent any
+
+    tools {
+        maven 'maven-3.9'
+        jdk 'jdk-17'
+
+    }
+
+    environment {
+        DOCKER_USER    = credentials('docker-hub-credentials')
+        IMAGE_NAME     = "${DOCKER_USER}/gitops-app"
+
+        K8S_DEPLOYMENT = 'k8s/deployment.yaml'
+
+        DOCKER_CREDS   = 'docker-hub-credentials'
+        GIT_CREDS      = 'github-credentials'
+
+        GITHUB_USER    = 'your-github-username'
+
+        GITHUB_REPO    = 'gitops'
+    }
+
+    triggers {
+         githubPush()
+         pollSCM('H 6 * * *')
+    }
+
+    options {
+        buildDiscarder(logRotator(numToKeepStr: '20'))
+        timestamps()
+        timeout(time: 30, unit: 'MINUTES')
+        disableConcurrentBuilds()
+    }
+
+    stages {
+        stage('Checkout') {
+            steps {
+                checkout scm
+                sh 'git log --oneline -5'
+            }
+        }
+
+        stage('Set image tag') {
+            steps {
+                script {
+                    // Get the short git SHA (first 7 characters) for non-main branches
+                    def shortSha = sh(
+                        script: 'git rev-parse --short HEAD',
+                        returnStdout: true
+                    ).trim()
+
+                    if (env.BRANCH_NAME == 'main') {
+                        // Read the <version> from pom.xml  (e.g. "1.0.0-SNAPSHOT" → v1.0.0-SNAPSHOT)
+                        def pomVersion = sh(
+                            script: "mvn help:evaluate -Dexpression=project.version -q -DforceStdout",
+                            returnStdout: true
+                        ).trim()
+                        env.IMAGE_TAG = "v${pomVersion}"
+                    } else {
+                        // Replace slashes in branch names  (feature/x → feature-x)
+                        def safeBranch = env.BRANCH_NAME.replaceAll('/', '-')
+                        env.IMAGE_TAG = "${safeBranch}-${shortSha}"
+                    }
+
+                    echo "╔══════════════════════════════════╗"
+                    echo "  IMAGE : ${IMAGE_NAME}:${env.IMAGE_TAG}"
+                    echo "  BRANCH: ${env.BRANCH_NAME}"
+                    echo "╚══════════════════════════════════╝"
+                }
+            }
+        }
+
+        stage('Build & test') {
+            steps {
+                sh '''
+                    mvn clean verify \
+                        -Dspring.profiles.active=test \
+                        -Dmaven.test.failure.ignore=false \
+                        --batch-mode \
+                        --no-transfer-progress
+                '''
+            }
+            post {
+                always {
+                    // Publish JUnit test results in the Jenkins UI
+                    // (shows pass/fail counts, individual test details)
+                    junit allowEmptyResults: true,
+                          testResults: '**/target/surefire-reports/*.xml'
+                }
+                failure {
+                    echo "Tests failed! Check the JUnit report above."
+                }
+            }
+        }
+
+        stage('Build Docker image') {
+            when {
+                anyOf {
+                    branch 'main'
+                    branch 'develop'
+                }
+            }
+            steps {
+                script {
+                    docker.build("${IMAGE_NAME}:${env.IMAGE_TAG}", '--pull .')
+                    echo "Docker image built: ${IMAGE_NAME}:${env.IMAGE_TAG}"
+                }
+            }
+        }
+
+        stage('Push image') {
+            when {
+                anyOf {
+                    branch 'main'
+                    branch 'develop'
+                }
+            }
+            steps {
+                script {
+                    docker.withRegistry('https://index.docker.io/v1/', DOCKER_CREDS) {
+
+                        // Push the versioned tag (always)
+                        docker.image("${IMAGE_NAME}:${env.IMAGE_TAG}").push()
+                        echo "Pushed: ${IMAGE_NAME}:${env.IMAGE_TAG}"
+
+                        // On main: also push 'latest' so docker pull gitops-app always gets current
+                        if (env.BRANCH_NAME == 'main') {
+                            docker.image("${IMAGE_NAME}:${env.IMAGE_TAG}").push('latest')
+                            echo "Pushed: ${IMAGE_NAME}:latest"
+                        }
+                    }
+                }
+            }
+        }
+
+        stage('Update K8s manifest') {
+            when {
+                anyOf {
+                    branch 'main'
+                    branch 'develop'
+                }
+            }
+            steps {
+                script {
+                    withCredentials([usernamePassword(
+                        credentialsId: GIT_CREDS,
+                        usernameVariable: 'GIT_USER',
+                        passwordVariable: 'GIT_TOKEN'
+                    )]) {
+                        sh """
+                            # Set git identity for the commit
+                            git config user.email "jenkins@ci.local"
+                            git config user.name  "Jenkins CI"
+
+                            # Replace the image tag line in deployment.yaml
+                            # Before: image: your-user/gitops-app:develop-abc1234
+                            # After:  image: your-user/gitops-app:v1.0.0
+                            sed -i 's|image: ${IMAGE_NAME}:.*|image: ${IMAGE_NAME}:${env.IMAGE_TAG}|g' \\
+                                ${K8S_DEPLOYMENT}
+
+                            # Verify the substitution worked — this will print in the build log
+                            echo "Updated image tag in manifest:"
+                            grep 'image:' ${K8S_DEPLOYMENT}
+
+                            # Stage and commit the change
+                            git add ${K8S_DEPLOYMENT}
+                            git commit -m "ci: update image tag to ${env.IMAGE_TAG} [skip ci]"
+
+                            # Push via HTTPS using the GitHub PAT
+                            # GIT_TOKEN is the Personal Access Token from Jenkins credentials
+                            git push https://\${GIT_USER}:\${GIT_TOKEN}@github.com/${GITHUB_USER}/${GITHUB_REPO}.git \\
+                                HEAD:${env.BRANCH_NAME}
+                        """
+                    }
+                }
+            }
+        }
+
+         stage('Smoke test') {
+            when { branch 'main' }
+            steps {
+                script {
+                    def minikubeIp = sh(
+                        script: 'minikube ip',
+                        returnStdout: true
+                    ).trim()
+
+                    echo "Waiting 60s for FluxCD to sync and pod to start..."
+                    sleep(60)
+
+                    sh """
+                        curl --retry 5 \
+                             --retry-delay 10 \
+                             --retry-connrefused \
+                             --fail \
+                             --silent \
+                             http://${minikubeIp}:30080/actuator/health | \
+                        grep -q '"status":"UP"'
+                        echo "Health check passed — app is UP in Kubernetes!"
+                    """
+                }
+            }
+        }
+
+    }
+
+    post {
+        success {
+            echo "✓ Pipeline succeeded — ${IMAGE_NAME}:${env.IMAGE_TAG} is live."
+        }
+
+        failure {
+            // Remove the local Docker image to free disk space after a failed build
+            sh "docker rmi ${IMAGE_NAME}:${env.IMAGE_TAG} || true"
+            echo "✗ Pipeline failed. Image removed from local Docker."
+        }
+
+        always {
+            // Remove dangling intermediate layers from docker build cache
+            sh 'docker image prune -f || true'
+
+            // Wipe the Jenkins workspace so the next build starts clean
+            // (prevents stale files from previous builds interfering)
+            cleanWs()
+        }
+    }
+}
