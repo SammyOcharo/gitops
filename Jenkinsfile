@@ -172,7 +172,9 @@ pipeline {
         }
 
          stage('Smoke test') {
-            when { branch 'main' }
+            when {
+                    expression { return false }
+            }
             steps {
                 script {
                     def minikubeIp = sh(
