@@ -153,28 +153,18 @@ pipeline {
                         passwordVariable: 'GIT_TOKEN'
                     )]) {
                         sh """
-                            # Set git identity for the commit
                             git config user.email "jenkins@ci.local"
                             git config user.name  "Jenkins CI"
 
-                            # Replace the image tag line in deployment.yml
-                            # Before: image: your-user/gitops-app:develop-abc1234
-                            # After:  image: your-user/gitops-app:v1.0.0
                             sed -i "s|image: ${env.IMAGE_NAME}:.*|image: ${env.IMAGE_NAME}:${env.IMAGE_TAG}|g" ${K8S_DEPLOYMENT}
 
-
-                            # Verify the substitution worked — this will print in the build log
                             echo "Updated image tag in manifest:"
                             grep 'image:' ${K8S_DEPLOYMENT}
 
-                            # Stage and commit the change
                             git add ${K8S_DEPLOYMENT}
                             git commit -m "ci: update image tag to ${env.IMAGE_TAG} [skip ci]"
 
-                            # Push via HTTPS using the GitHub PAT
-                            # GIT_TOKEN is the Personal Access Token from Jenkins credentials
-                            git push https://\${GIT_USER}:\${GIT_TOKEN}@github.com/${GITHUB_USER}/${GITHUB_REPO}.git \\
-                                HEAD:${env.BRANCH_NAME}
+                            git push https://\${GIT_TOKEN}@github.com/${GITHUB_USER}/${GITHUB_REPO}.git HEAD:${env.BRANCH_NAME}
                         """
                     }
                 }
