@@ -157,7 +157,7 @@ pipeline {
                             git config user.email "jenkins@ci.local"
                             git config user.name  "Jenkins CI"
 
-                            # Replace the image tag line in deployment.yaml
+                            # Replace the image tag line in deployment.yml
                             # Before: image: your-user/gitops-app:develop-abc1234
                             # After:  image: your-user/gitops-app:v1.0.0
                             sed -i "s|image: ${env.IMAGE_NAME}:.*|image: ${env.IMAGE_NAME}:${env.IMAGE_TAG}|g" ${K8S_DEPLOYMENT}
