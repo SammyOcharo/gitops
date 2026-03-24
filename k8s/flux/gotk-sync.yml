@@ -1,0 +1,25 @@
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: GitRepository
+metadata:
+  name: gitops-app
+  namespace: flux-system
+spec:
+  interval: 1m0s
+  url: https://github.com/SammyOcharo/gitops.git
+  ref:
+    branch: main
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: gitops-app
+  namespace: flux-system
+spec:
+  interval: 1m0s
+  path: ./k8s
+  prune: true
+  sourceRef:
+    kind: GitRepository
+    name: gitops-app
+  targetNamespace: gitops-app
+  timeout: 5m0s
