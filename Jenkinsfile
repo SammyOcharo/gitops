@@ -10,7 +10,7 @@ pipeline {
     environment {
         DOCKER_USER    = credentials('docker-hub-credentials')
 
-        K8S_DEPLOYMENT = 'k8s/deployment.yaml'
+        K8S_DEPLOYMENT = 'k8s/deployment.yml'
 
         DOCKER_CREDS   = 'docker-hub-credentials'
         GIT_CREDS      = 'github-credentials'

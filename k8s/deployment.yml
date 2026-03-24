@@ -16,5 +16,6 @@ spec:
       containers:
         - name: gitops-app
           image: obanyiocharo/gitops-app:latest
+
           ports:
             - containerPort: 8080
