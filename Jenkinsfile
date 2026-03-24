@@ -173,7 +173,7 @@ pipeline {
 
          stage('Smoke test') {
             when {
-                    expression { return false }
+                  expression { return false }
             }
             steps {
                 script {
