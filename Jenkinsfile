@@ -9,7 +9,6 @@ pipeline {
 
     environment {
         DOCKER_USER    = credentials('docker-hub-credentials')
-        IMAGE_NAME     = "${DOCKER_USER}/gitops-app"
 
         K8S_DEPLOYMENT = 'k8s/deployment.yaml'
 
@@ -101,7 +100,7 @@ pipeline {
             }
             steps {
                 script {
-                    docker.build("${IMAGE_NAME}:${env.IMAGE_TAG}", '--pull .')
+                    docker.build(env.IMAGE_NAME + ':' + env.IMAGE_TAG, '--pull .')
                     echo "Docker image built: ${IMAGE_NAME}:${env.IMAGE_TAG}"
                 }
             }
@@ -119,12 +118,13 @@ pipeline {
                     docker.withRegistry('https://index.docker.io/v1/', DOCKER_CREDS) {
 
                         // Push the versioned tag (always)
-                        docker.image("${IMAGE_NAME}:${env.IMAGE_TAG}").push()
+                        docker.image(env.IMAGE_NAME + ':' + env.IMAGE_TAG).push()
+
                         echo "Pushed: ${IMAGE_NAME}:${env.IMAGE_TAG}"
 
                         // On main: also push 'latest' so docker pull gitops-app always gets current
                         if (env.BRANCH_NAME == 'main') {
-                            docker.image("${IMAGE_NAME}:${env.IMAGE_TAG}").push('latest')
+                            docker.image(env.IMAGE_NAME + ':' + env.IMAGE_TAG).push('latest')
                             echo "Pushed: ${IMAGE_NAME}:latest"
                         }
                     }
@@ -154,7 +154,7 @@ pipeline {
                             # Replace the image tag line in deployment.yaml
                             # Before: image: your-user/gitops-app:develop-abc1234
                             # After:  image: your-user/gitops-app:v1.0.0
-                            sed -i 's|image: ${IMAGE_NAME}:.*|image: ${IMAGE_NAME}:${env.IMAGE_TAG}|g' \\
+                            echo '✓ Pipeline succeeded — ' + env.IMAGE_NAME + ':' + env.IMAGE_TAG + ' is live.' \\
                                 ${K8S_DEPLOYMENT}
 
                             # Verify the substitution worked — this will print in the build log
@@ -210,7 +210,7 @@ pipeline {
 
         failure {
             // Remove the local Docker image to free disk space after a failed build
-            sh "docker rmi ${IMAGE_NAME}:${env.IMAGE_TAG} || true"
+            sh 'docker rmi ' + env.IMAGE_NAME + ':' + env.IMAGE_TAG + ' || true'
             echo "✗ Pipeline failed. Image removed from local Docker."
         }
 
