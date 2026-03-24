@@ -162,7 +162,7 @@ pipeline {
                             grep 'image:' ${K8S_DEPLOYMENT}
 
                             git add ${K8S_DEPLOYMENT}
-                            git commit -m "ci: update image tag to ${env.IMAGE_TAG} [skip ci]"
+                            git diff --cached --quiet || git commit -m "ci: update image tag to ${env.IMAGE_TAG} [skip ci]"
 
                             git push https://\${GIT_TOKEN}@github.com/${GITHUB_USER}/${GITHUB_REPO}.git HEAD:${env.BRANCH_NAME}
                         """
