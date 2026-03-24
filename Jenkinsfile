@@ -16,7 +16,7 @@ pipeline {
         DOCKER_CREDS   = 'docker-hub-credentials'
         GIT_CREDS      = 'github-credentials'
 
-        GITHUB_USER    = 'your-github-username'
+        GITHUB_USER    = 'SammyOcharo'
 
         GITHUB_REPO    = 'gitops'
     }
@@ -44,29 +44,27 @@ pipeline {
         stage('Set image tag') {
             steps {
                 script {
-                    // Get the short git SHA (first 7 characters) for non-main branches
+                    // Build IMAGE_NAME here, after credentials are resolved
+                    env.IMAGE_NAME = env.DOCKER_USER + '/gitops-app'
+
                     def shortSha = sh(
                         script: 'git rev-parse --short HEAD',
                         returnStdout: true
                     ).trim()
 
                     if (env.BRANCH_NAME == 'main') {
-                        // Read the <version> from pom.xml  (e.g. "1.0.0-SNAPSHOT" → v1.0.0-SNAPSHOT)
                         def pomVersion = sh(
                             script: "mvn help:evaluate -Dexpression=project.version -q -DforceStdout",
                             returnStdout: true
                         ).trim()
                         env.IMAGE_TAG = "v${pomVersion}"
                     } else {
-                        // Replace slashes in branch names  (feature/x → feature-x)
                         def safeBranch = env.BRANCH_NAME.replaceAll('/', '-')
                         env.IMAGE_TAG = "${safeBranch}-${shortSha}"
                     }
 
-                    echo "╔══════════════════════════════════╗"
-                    echo "  IMAGE : ${IMAGE_NAME}:${env.IMAGE_TAG}"
-                    echo "  BRANCH: ${env.BRANCH_NAME}"
-                    echo "╚══════════════════════════════════╝"
+                    echo "IMAGE : ${env.IMAGE_NAME}:${env.IMAGE_TAG}"
+                    echo "BRANCH: ${env.BRANCH_NAME}"
                 }
             }
         }
